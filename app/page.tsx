@@ -343,7 +343,7 @@ export default function Home() {
       <aside className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`}>
         <div className="brand-lockup">
           <div className="brand-mark"><Sparkles size={15} strokeWidth={2.4} /></div>
-          <span>decide<span className="brand-dot">.</span></span>
+          <span>Decide por mi</span>
         </div>
 
         <Button className="new-comparison" onClick={() => { setProducts(sampleProducts); setAnalysis(buildFallbackAnalysis(sampleProducts, [])); setMessages(sampleMessages); setSaved(false); setNotice('Nueva comparación lista.'); }}>
@@ -378,7 +378,7 @@ export default function Home() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="mobile-brand"><Button variant="ghost" size="icon" onClick={() => setMobileMenu((value) => !value)} aria-label="Abrir menú"><Menu size={19} /></Button><span>decide<span className="brand-dot">.</span></span></div>
+          <div className="mobile-brand"><Button variant="ghost" size="icon" onClick={() => setMobileMenu((value) => !value)} aria-label="Abrir menú"><Menu size={19} /></Button><span>Decide por mi</span></div>
           <div className="breadcrumbs"><span>Comparador</span><span className="crumb-divider">/</span><strong>Audífonos para viajar</strong></div>
           <div className="top-actions"><span className="save-state">{saved ? <><Check size={14} /> Guardado</> : 'Borrador'}</span><Button variant="outline" className="top-action-btn" onClick={saveDecision} disabled={isSaving}><Bookmark size={15} /> Guardar</Button><Button variant="ghost" size="icon" aria-label="Más acciones"><MoreHorizontal size={18} /></Button></div>
         </header>
