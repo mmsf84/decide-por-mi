@@ -71,6 +71,7 @@ temp/
 
 # deployment and generated files
 artifacts/
+.output/
 .vercel
 next-env.d.ts
 /dist/
