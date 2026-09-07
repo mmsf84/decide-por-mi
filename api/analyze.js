@@ -1,4 +1,4 @@
-const MODEL = 'gpt-oss:120b-cloud';
+const MODEL = 'gpt-oss:120b';
 
 function fallback(products) {
   const winner = [...products].sort((a, b) => (b.valueScore ?? 70) - (a.valueScore ?? 70))[0];

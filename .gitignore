@@ -28,11 +28,55 @@ yarn-error.log*
 
 # local environment
 .env*
+!.env.example
+
+# secrets and credentials
+*.key
+*.crt
+*.p12
+*.pfx
+*.keystore
+*.jks
+*.secret
+*.token
+*.credentials
+secrets/
+.secrets/
+credentials/
+credentials.json
+service-account*.json
+
+# local databases and database dumps
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlitedb
+*.dump
+*.bak
+database/
+db/local/
+supabase/.branches/
+
+# logs and local runtime state
+*.log
+logs/
+.logs/
+.cache/
+.tmp/
+tmp/
+temp/
+
 
 # deployment and generated files
+artifacts/
 .vercel
 next-env.d.ts
 /dist/
 /.wrangler/
 /outputs/
 /work/
+
+# local dev logs
+/.tools/*.log

@@ -1,5 +1,6 @@
 'use client';
 
+import type { Session } from '@supabase/supabase-js';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
@@ -9,8 +10,8 @@ import {
   CircleAlert,
   Clock3,
   ExternalLink,
-  FileText,
   Link2,
+  LogOut,
   LoaderCircle,
   Menu,
   MoreHorizontal,
@@ -34,50 +35,7 @@ import {
   type ChatMessage,
   type Product,
 } from '@/lib/decision-engine';
-
-const sampleProducts: Product[] = [
-  {
-    id: 'sony-xm5',
-    url: 'https://www.sony.com/headphones/wireless-headphones/wh-1000xm5',
-    name: 'Sony WH-1000XM5',
-    merchant: 'Sony',
-    price: 349,
-    currency: 'USD',
-    category: 'audífonos',
-    shipping: 'Envío incluido',
-    qualityScore: 92,
-    valueScore: 84,
-    accent: 'blue',
-  },
-  {
-    id: 'bose-ultra',
-    url: 'https://www.bose.com/p/headphones/quietcomfort-ultra-headphones',
-    name: 'Bose QuietComfort Ultra',
-    merchant: 'Bose',
-    price: 379,
-    currency: 'USD',
-    category: 'audífonos',
-    shipping: 'Envío incluido',
-    qualityScore: 94,
-    valueScore: 89,
-    accent: 'amber',
-  },
-];
-
-const sampleMessages: ChatMessage[] = [
-  {
-    id: 'welcome',
-    role: 'assistant',
-    content:
-      'Ya revisé los dos enlaces. Son comparables: misma categoría, uso y rango de precio. Bose gana por poco en valor total; Sony queda arriba si priorizas llamadas y autonomía.',
-  },
-];
-
-const recentDecisions = [
-  { title: 'Audífonos para viajar', meta: '2 productos · hace 4 min', active: true },
-  { title: 'Monitor para home office', meta: '3 productos · ayer', active: false },
-  { title: 'Cafetera compacta', meta: '2 productos · 28 feb', active: false },
-];
+import { authRedirectUrl, getAuthHeaders, supabase } from '@/lib/supabase';
 
 const criteria = [
   { label: 'Calidad', value: 45, color: 'navy' },
@@ -85,11 +43,28 @@ const criteria = [
   { label: 'Valor de uso', value: 20, color: 'mint' },
 ];
 
+
+const emptyAnalysis: Analysis = {
+  comparable: false,
+  verdict: "Aún no hay una comparación.",
+  overallScore: 0,
+  tradeoff: "",
+  proofPoints: [],
+  chatReply: "",
+  canvas: {
+    eyebrow: "SIN CONSULTA",
+    headline: "Consulta opciones para empezar.",
+    recommendation: "Pega enlaces de productos o servicios para comparar información real.",
+    rationale: "Todavía no hay enlaces consultados.",
+    nextStep: "Agrega al menos dos enlaces y ejecuta el análisis.",
+  },
+};
 type WebMcpContext = {
   registerTool: (tool: { name: string; title: string; description: string; inputSchema: Record<string, unknown>; annotations: Record<string, boolean>; execute: (input: unknown) => unknown }, options?: { signal?: AbortSignal }) => void | Promise<void>;
 };
 
 type StageResult = { ok: false; message: string } | { ok: true; productId: string; totalProducts: number };
+type AnalysisResponse = Analysis & { provider?: string; products?: Product[] };
 
 function formatPrice(product: Product) {
   if (typeof product.price !== 'number') return 'Por confirmar';
@@ -140,12 +115,172 @@ function localAnalysis(products: Product[]): Analysis {
   return buildFallbackAnalysis(products, []);
 }
 
+function AuthPanel() {
+  const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  async function submit(event: { preventDefault: () => void }) {
+    event.preventDefault();
+    if (!email.trim() || password.length < 6 || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setNotice('');
+    try {
+      const result =
+        mode === 'signIn'
+          ? await supabase.auth.signInWithPassword({
+              email: email.trim(),
+              password,
+            })
+          : await supabase.auth.signUp({
+              email: email.trim(),
+              password,
+              options: { emailRedirectTo: authRedirectUrl },
+            });
+
+      if (result.error) throw result.error;
+      setNotice(
+        mode === 'signIn'
+          ? 'Sesión iniciada.'
+          : result.data.session
+            ? 'Cuenta creada. Ya puedes continuar.'
+            : 'Cuenta creada. Inicia sesión con tu contraseña.',
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo completar la autenticación.',
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-12 text-[#171717]">
+      <div className="mx-auto flex min-h-[70vh] max-w-md items-center justify-center">
+        <section className="w-full rounded-3xl border border-[#deded9] bg-white p-8 shadow-[0_18px_60px_rgba(33,33,29,0.08)]">
+          <div className="mb-8 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#172c4d] text-white">
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#777771]">
+                Decide por mi
+              </p>
+              <h1 className="text-xl font-semibold">
+                Productos/Servicios
+              </h1>
+            </div>
+          </div>
+          <h2 className="mb-2 text-2xl font-semibold">
+            {mode === 'signIn' ? 'Entra a tu espacio' : 'Crea tu cuenta'}
+          </h2>
+          <p className="mb-6 text-sm leading-6 text-[#6b6b68]">
+            Tus comparaciones, conversaciones y resultados quedan aislados en
+            tu propia cuenta.
+          </p>
+          <form className="space-y-4" onSubmit={submit}>
+            <label className="block text-sm font-medium">
+              Correo electrónico
+              <Input
+                className="mt-2"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                placeholder="tu@correo.com"
+              />
+            </label>
+            <label className="block text-sm font-medium">
+              Contraseña
+              <Input
+                className="mt-2"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete={mode === 'signIn' ? 'current-password' : 'new-password'}
+                placeholder="Mínimo 6 caracteres"
+                minLength={6}
+              />
+            </label>
+            <Button className="w-full" type="submit" disabled={isSubmitting}>
+              {isSubmitting
+                ? 'Procesando…'
+                : mode === 'signIn'
+                  ? 'Iniciar sesión'
+                  : 'Crear cuenta'}
+            </Button>
+          </form>
+          {notice && (
+            <p className="mt-4 rounded-xl bg-[#f2f5f7] px-4 py-3 text-sm text-[#4d565b]">
+              {notice}
+            </p>
+          )}
+          <button
+            className="mt-6 w-full text-sm font-medium text-[#172c4d] underline-offset-4 hover:underline"
+            type="button"
+            onClick={() => {
+              setMode((current) => (current === 'signIn' ? 'signUp' : 'signIn'));
+              setNotice('');
+            }}
+          >
+            {mode === 'signIn'
+              ? '¿No tienes cuenta? Crear una'
+              : 'Ya tengo una cuenta'}
+          </button>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 export default function Home() {
-  const [products, setProducts] = useState<Product[]>(sampleProducts);
-  const [analysis, setAnalysis] = useState<Analysis>(() => buildFallbackAnalysis(sampleProducts, []));
+  const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (active) {
+        setSession(data.session);
+        setIsLoading(false);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (active) setSession(nextSession);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  if (isLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f7f7f5] text-sm text-[#6b6b68]">
+        Cargando tu espacio…
+      </main>
+    );
+  }
+
+  return session ? <Workspace session={session} /> : <AuthPanel />;
+}
+
+function Workspace({ session }: { session: Session }) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [analysis, setAnalysis] = useState<Analysis>(emptyAnalysis);
   const [urlDraft, setUrlDraft] = useState('');
   const [question, setQuestion] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>(sampleMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -188,6 +323,7 @@ export default function Home() {
             const currentProducts = productsRef.current;
             if (currentProducts.length < 2) throw new Error('Se necesitan al menos dos productos.');
             const result = await requestAnalysis(currentProducts);
+            applyIdentifiedProducts(result.products);
             setAnalysis(result);
             return { comparable: result.comparable, winner: result.winnerName ?? null, headline: result.canvas.headline };
           },
@@ -228,11 +364,16 @@ export default function Home() {
   async function requestAnalysis(currentProducts: Product[]) {
     const response = await fetch('/api/analyze', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({ products: currentProducts, criteria }),
     });
     if (!response.ok) throw new Error('analysis_unavailable');
-    return (await response.json()) as Analysis & { provider?: string };
+    return (await response.json()) as AnalysisResponse;
+  }
+
+  function applyIdentifiedProducts(nextProducts?: Product[]) {
+    if (!nextProducts?.length) return;
+    setProducts((current) => current.map((product) => nextProducts.find((next) => next.id === product.id) ?? product));
   }
 
   function addProduct(event?: { preventDefault: () => void }) {
@@ -259,6 +400,7 @@ export default function Home() {
     setNotice('');
     try {
       const result = await requestAnalysis(products);
+      applyIdentifiedProducts(result.products);
       setAnalysis(result);
       if (result.chatReply) {
         setMessages((current) => [
@@ -292,11 +434,12 @@ export default function Home() {
     try {
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({ products, criteria, question: value, analysis }),
       });
       if (!response.ok) throw new Error('chat_unavailable');
-      const result = (await response.json()) as Analysis & { chatReply?: string };
+      const result = (await response.json()) as AnalysisResponse;
+      applyIdentifiedProducts(result.products);
       setAnalysis(result);
       setMessages((current) => [
         ...current,
@@ -318,7 +461,7 @@ export default function Home() {
     try {
       const response = await fetch('/api/decisions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           title: `${products[0]?.name ?? 'Comparación'} vs ${products[1]?.name ?? 'alternativa'}`,
           criteria,
@@ -329,10 +472,10 @@ export default function Home() {
       });
       if (!response.ok) throw new Error('save_unavailable');
       setSaved(true);
-      setNotice('Decisión guardada en SQLite.');
+      setNotice('Decisión guardada en Supabase.');
     } catch {
-      setSaved(true);
-      setNotice('Decisión guardada en esta sesión. Conecta SQLite para persistirla entre dispositivos.');
+      setSaved(false);
+      setNotice('No se pudo guardar la decisión. Revisa tu sesión e inténtalo nuevamente.');
     } finally {
       setIsSaving(false);
     }
@@ -343,10 +486,10 @@ export default function Home() {
       <aside className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`}>
         <div className="brand-lockup">
           <div className="brand-mark"><Sparkles size={15} strokeWidth={2.4} /></div>
-          <span>Decide por mi</span>
+          <span>Decide por mi - Productos/Servicios</span>
         </div>
 
-        <Button className="new-comparison" onClick={() => { setProducts(sampleProducts); setAnalysis(buildFallbackAnalysis(sampleProducts, [])); setMessages(sampleMessages); setSaved(false); setNotice('Nueva comparación lista.'); }}>
+        <Button className="new-comparison" onClick={() => { setProducts([]); setAnalysis(emptyAnalysis); setMessages([]); setSaved(false); setNotice('Nueva comparación lista.'); }}>
           <Plus size={16} />
           Nueva comparación
           <span className="shortcut">⌘ K</span>
@@ -354,46 +497,36 @@ export default function Home() {
 
         <nav className="side-nav" aria-label="Navegación principal">
           <span className="side-label">ESPACIO DE TRABAJO</span>
-          <button className="side-link active" type="button"><Zap size={16} /> Comparador <span className="side-count">1</span></button>
+          <button className="side-link active" type="button"><Zap size={16} /> Comparador {products.length > 0 && <span className="side-count">{products.length}</span>}</button>
           <button className="side-link" type="button"><Clock3 size={16} /> Historial</button>
           <button className="side-link" type="button"><Bookmark size={16} /> Guardados</button>
         </nav>
 
-        <div className="recent-list">
-          <span className="side-label">RECIENTES</span>
-          {recentDecisions.map((decision) => (
-            <button className={`recent-item ${decision.active ? 'current' : ''}`} type="button" key={decision.title}>
-              <span className="recent-icon"><FileText size={14} /></span>
-              <span className="recent-copy"><strong>{decision.title}</strong><small>{decision.meta}</small></span>
-              {decision.active && <span className="current-dot" />}
-            </button>
-          ))}
-        </div>
-
         <div className="sidebar-footer">
-          <div className="provider-status"><span className="status-dot" /><span><strong>Ollama Cloud</strong><small>gpt-oss:120b-cloud</small></span></div>
-          <Button variant="ghost" size="icon" aria-label="Más opciones"><MoreHorizontal size={17} /></Button>
+          <div className="provider-status"><span className="status-dot" /><span><strong>Supabase Auth</strong><small>{session.user.email ?? 'Sesión autenticada'}</small></span></div>
+          <Button variant="ghost" size="icon" aria-label="Cerrar sesión" onClick={() => { void supabase.auth.signOut(); }}><LogOut size={17} /></Button>
         </div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
-          <div className="mobile-brand"><Button variant="ghost" size="icon" onClick={() => setMobileMenu((value) => !value)} aria-label="Abrir menú"><Menu size={19} /></Button><span>Decide por mi</span></div>
-          <div className="breadcrumbs"><span>Comparador</span><span className="crumb-divider">/</span><strong>Audífonos para viajar</strong></div>
-          <div className="top-actions"><span className="save-state">{saved ? <><Check size={14} /> Guardado</> : 'Borrador'}</span><Button variant="outline" className="top-action-btn" onClick={saveDecision} disabled={isSaving}><Bookmark size={15} /> Guardar</Button><Button variant="ghost" size="icon" aria-label="Más acciones"><MoreHorizontal size={18} /></Button></div>
+          <div className="mobile-brand"><Button variant="ghost" size="icon" onClick={() => setMobileMenu((value) => !value)} aria-label="Abrir menú"><Menu size={19} /></Button><span>Decide por mi - Productos/Servicios</span></div>
+          <div className="breadcrumbs"><span>Comparador</span><span className="crumb-divider">/</span><strong>{products.length ? "Comparación actual" : "Nueva consulta"}</strong></div>
+          <div className="top-actions"><span className="save-state">{saved ? <><Check size={14} /> Guardado</> : 'Borrador'}</span><Button variant="outline" className="top-action-btn" onClick={saveDecision} disabled={isSaving || products.length < 2}><Bookmark size={15} /> Guardar</Button><Button variant="ghost" size="icon" aria-label="Más acciones"><MoreHorizontal size={18} /></Button></div>
         </header>
 
         <div className="workspace-scroll">
           <div className="workspace-grid">
             <section className="main-column">
               <div className="intro-block">
-                <div className="eyebrow"><span className="eyebrow-line" /> COMPARACIÓN ACTIVA <span className="eyebrow-date">04 MAR 2026</span></div>
+                <div className="eyebrow"><span className="eyebrow-line" /> COMPARACIÓN ACTIVA</div>
                 <h1>Compra con evidencia,<br /><em>no con intuición.</em></h1>
-                <p className="intro-copy">Pega los enlaces. El agente revisa lo esencial y convierte la comparación en una decisión clara.</p>
+                <p className="intro-copy">Pega enlaces de productos o servicios. El agente revisa lo esencial y convierte la comparación en una decisión clara.</p>
               </div>
 
               <section className="products-section" aria-labelledby="products-title">
-                <div className="section-heading"><div><span className="section-kicker">01 / INSUMOS</span><h2 id="products-title">Productos a contrastar <span className="count-pill">{products.length}</span></h2></div><span className="heading-note"><ShieldCheck size={14} /> Fuentes visibles</span></div>
+                {products.length > 0 && <div className="section-heading"><div><span className="section-kicker">PRODUCTOS CONSULTADOS</span><h2 id="products-title">Productos a contrastar <span className="count-pill">{products.length}</span></h2></div><span className="heading-note"><ShieldCheck size={14} /> Fuentes visibles</span></div>}
+                {products.length > 0 && (
                 <div className="product-list">
                   {products.map((product, index) => (
                     <article className="product-row" key={product.id}>
@@ -406,20 +539,30 @@ export default function Home() {
                     </article>
                   ))}
                 </div>
+                )}
+                {products.length === 0 && (
+                  <div className="empty-products-state">
+                    <span className="section-kicker">NUEVA CONSULTA</span>
+                    <h2 id="products-title">Consulta productos o servicios</h2>
+                    <p>Añade enlaces para analizar únicamente lo que tú hayas consultado.</p>
+                  </div>
+                )}
                 <form className="add-link-form" onSubmit={addProduct}>
                   <Link2 size={17} />
-                  <Input value={urlDraft} onChange={(event) => setUrlDraft(event.target.value)} placeholder="Pega aquí otro enlace de producto…" aria-label="Enlace de producto" />
+                  <Input value={urlDraft} onChange={(event) => setUrlDraft(event.target.value)} placeholder="Pega aquí un enlace de producto o servicio…" aria-label="Enlace de producto" />
                   <Button type="submit" variant="ghost" className="add-link-btn"><Plus size={15} /> Añadir</Button>
                 </form>
+                {products.length > 0 && (
                 <div className="criteria-strip"><div className="criteria-label"><SlidersIcon /> Criterios activos</div>{criteria.map((item) => <span className="criteria-item" key={item.label}><i className={`criteria-dot ${item.color}`} /> {item.label} <strong>{item.value}%</strong></span>)}<Button variant="ghost" className="criteria-edit">Editar <ChevronDown size={14} /></Button></div>
+                )}
               </section>
 
               <section className="chat-section" aria-labelledby="chat-title">
                 <div className="section-heading chat-heading"><div><span className="section-kicker">02 / ANÁLISIS</span><h2 id="chat-title">Habla con tu agente</h2></div><div className="agent-pill"><span className="status-dot" /> En línea</div></div>
                 <div className="chat-card">
-                  <div className="chat-card-top"><div className="agent-identity"><div className="agent-avatar"><Sparkles size={16} /></div><div><strong>Decide Agent</strong><span>Analista de compras · <b>gpt-oss:120b-cloud</b></span></div></div><Button variant="ghost" size="icon" aria-label="Panel del agente"><PanelRight size={16} /></Button></div>
+                  <div className="chat-card-top"><div className="agent-identity"><div className="agent-avatar"><Sparkles size={16} /></div><div><strong>Decide Agent</strong><span>Analista de compras · <b>gpt-oss:120b</b></span></div></div><Button variant="ghost" size="icon" aria-label="Panel del agente"><PanelRight size={16} /></Button></div>
                   <div className="message-list" aria-live="polite">
-                    {messages.slice(-4).map((message) => <div className={`message ${message.role}`} key={message.id}><div className="message-bubble">{message.content}</div>{message.role === 'assistant' && <span className="message-meta">Ahora · basado en los enlaces compartidos</span>}</div>)}
+                    {messages.length > 0 ? messages.slice(-4).map((message) => <div className={`message ${message.role}`} key={message.id}><div className="message-bubble">{message.content}</div>{message.role === 'assistant' && <span className="message-meta">Ahora · basado en los enlaces compartidos</span>}</div>) : <div className="chat-empty-state">Aquí aparecerá el análisis después de que consultes tus opciones.</div>}
                     {isAnalyzing && <div className="message assistant"><div className="message-bubble typing"><span /><span /><span /></div></div>}
                   </div>
                   <div className="suggestion-row">{['¿Cuál tiene mejor valor?', '¿Qué dato falta?', '¿Qué elegirías tú?'].map((suggestion) => <button type="button" className="suggestion" key={suggestion} onClick={() => setQuestion(suggestion)}>{suggestion}</button>)}</div>
@@ -433,7 +576,7 @@ export default function Home() {
             <aside className="canvas-column">
               <div className="canvas-heading"><div><span className="section-kicker">03 / LIENZO</span><h2>Decisión en una página</h2></div><Button variant="ghost" size="icon" aria-label="Más opciones del lienzo"><MoreHorizontal size={18} /></Button></div>
               <div className="canvas-sheet">
-                <div className="canvas-sheet-top"><span className="canvas-label"><span className="canvas-label-mark" /> CANVAS / DECISIÓN 01</span><span className="canvas-date">04.03.26</span></div>
+                <div className="canvas-sheet-top"><span className="canvas-label"><span className="canvas-label-mark" /> CANVAS / DECISIÓN 01</span></div>
                 {analysis.comparable ? <>
                   <div className="canvas-verdict"><Badge className="recommended-badge"><Check size={12} /> RECOMENDACIÓN</Badge><h3>{analysis.canvas.headline}</h3><p>{analysis.canvas.recommendation}</p></div>
                   <div className="winner-callout"><div className="winner-avatar">{(analysis.winnerName ?? products[1]?.name ?? 'B').slice(0, 1)}</div><div><span>Mejor opción ahora</span><strong>{analysis.winnerName ?? products[1]?.name}</strong></div><ArrowUpRight className="winner-arrow" size={18} /></div>
@@ -449,7 +592,7 @@ export default function Home() {
               <div className="canvas-note"><div className="note-icon"><Sparkles size={14} /></div><p><strong>El lienzo se guarda junto al análisis.</strong> Puedes volver a esta decisión desde tu historial.</p></div>
             </aside>
           </div>
-          <footer className="workspace-footer"><span>Decide v0.1</span><span>Hecho para comprar mejor, no más rápido.</span><span><span className="status-dot" /> SQLite conectado</span></footer>
+          <footer className="workspace-footer"><span>Decide por mi - Productos/Servicios</span><span>Hecho para comprar mejor, no más rápido.</span><span><span className="status-dot" /> Supabase conectado</span></footer>
         </div>
       </section>
     </main>
